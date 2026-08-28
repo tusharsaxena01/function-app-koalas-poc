@@ -27,6 +27,8 @@ if not os.environ.get("JAVA_HOME"):
 
 import pyspark.pandas as ks
 from pyspark.sql import SparkSession
+from pyspark.sql.functions import lit
+import pyspark.sql.functions as F
 
 # Build a single, lean SparkSession for the whole worker process BEFORE any
 # pandas-on-Spark operation runs. This POC handles small, single-request files,
@@ -155,9 +157,15 @@ def Koalas_xlsx_poc(req: func.HttpRequest) -> func.HttpResponse:
         if numeric_cols:
             kdf["row_numeric_sum"] = kdf[numeric_cols].sum(axis=1)
 
-        # 5. Convert back to pandas to serialize as JSON
-        #    (to_pandas() triggers the Spark computation / collects results)
-        result_pdf = kdf.to_pandas()
+        # 5. Use the native PySpark DataFrame API to add a constant column with
+        #    withColumn + lit. Convert the pandas-on-Spark frame to a Spark
+        #    DataFrame, tag every record with its source, then bring it back.
+        sdf = kdf.to_spark()
+        sdf = sdf.withColumn("source", F.lit("FunctionApp")) #using basic pyspark command
+
+        # 6. Convert back to pandas to serialize as JSON
+        #    (toPandas() triggers the Spark computation / collects results)
+        result_pdf = sdf.toPandas()
 
     except Exception as e:
         logging.error(f"Koalas processing failed: {e}")
